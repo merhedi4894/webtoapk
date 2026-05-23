@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: webtoapk
+    runtime: docker
+    plan: free
+    envVars:
+      - key: DATABASE_URL
+        value: file:./db/custom.db
+      - key: NODE_ENV
+        value: production
+    healthCheckPath: /
