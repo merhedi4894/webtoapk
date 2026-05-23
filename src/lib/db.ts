@@ -1,6 +1,7 @@
 import { PrismaClient } from '@prisma/client'
 import path from 'path'
 import fs from 'fs'
+import { execSync } from 'child_process'
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined
@@ -34,6 +35,26 @@ function getDatabaseUrl(): string {
 
 const databaseUrl = getDatabaseUrl()
 console.log(`[DB] Using database URL: ${databaseUrl}`)
+
+// Ensure the database schema exists by running prisma db push
+// This is critical for fresh deployments where the database is empty
+function ensureDatabaseSchema(dbUrl: string) {
+  try {
+    console.log('[DB] Ensuring database schema is up-to-date...')
+    execSync('npx prisma db push --accept-data-loss --skip-generate', {
+      stdio: 'pipe',
+      env: { ...process.env, DATABASE_URL: dbUrl },
+      timeout: 30000,
+    })
+    console.log('[DB] Database schema is ready')
+  } catch (err: any) {
+    console.error(`[DB] Warning: Schema push failed: ${err.message}`)
+    console.error('[DB] The app will still try to start, but database operations may fail')
+  }
+}
+
+// Run schema check before creating the client
+ensureDatabaseSchema(databaseUrl)
 
 export const db =
   globalForPrisma.prisma ??
