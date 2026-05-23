@@ -72,11 +72,9 @@ RUN bun run db:generate
 # Build Next.js
 RUN bun run build
 
-# Create necessary directories
-RUN mkdir -p download/apks upload/icons build-workspace db
-
-# Push database schema
-RUN DATABASE_URL=file:./db/custom.db bun run db:push || true
+# Create necessary directories and initialize database
+RUN mkdir -p /app/db /app/download/apks /app/upload/icons /app/build-workspace && \
+    DATABASE_URL="file:/app/db/custom.db" bun run db:push
 
 # Stage 2: Production image
 FROM node:21-slim AS runner
@@ -112,7 +110,7 @@ ENV PATH="/root/.bun/bin:${PATH}"
 
 # Copy Android SDK from builder
 ENV ANDROID_HOME=/opt/android-sdk
-ENV PATH="${PATH}:${ANDROID_HOME}/build-tools/34.0.0:${ANDROID_HOME}/platform-tools}"
+ENV PATH="${PATH}:${ANDROID_HOME}/build-tools/34.0.0:${ANDROID_HOME}/platform-tools"
 COPY --from=builder ${ANDROID_HOME} ${ANDROID_HOME}
 
 WORKDIR /app
@@ -120,14 +118,31 @@ WORKDIR /app
 # Copy built application
 COPY --from=builder /app ./
 
+# Create data directories with proper permissions
+RUN mkdir -p /app/db /app/download/apks /app/upload/icons /app/build-workspace && \
+    chmod -R 777 /app/db /app/download /app/upload /app/build-workspace
+
+# Copy the pre-initialized database from builder
+COPY --from=builder /app/db/custom.db /app/db/custom.db
+
 # Set environment variables
 ENV NODE_ENV=production
 ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
-ENV DATABASE_URL=file:./db/custom.db
+ENV DATABASE_URL="file:/app/db/custom.db"
 
 # Expose port
 EXPOSE 3000
 
+# Create a startup script that ensures db directory exists and starts the app
+RUN echo '#!/bin/sh\n\
+set -e\n\
+echo "[Startup] Ensuring database directory exists..."\n\
+mkdir -p /app/db /app/download/apks /app/upload/icons /app/build-workspace\n\
+echo "[Startup] Database path: /app/db/custom.db"\n\
+echo "[Startup] Starting application..."\n\
+exec bun start\n\
+' > /app/start.sh && chmod +x /app/start.sh
+
 # Start the application
-CMD ["bun", "start"]
+CMD ["/app/start.sh"]
