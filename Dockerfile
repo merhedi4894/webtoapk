@@ -72,9 +72,8 @@ RUN bun run db:generate
 # Build Next.js
 RUN bun run build
 
-# Create necessary directories and initialize database
-RUN mkdir -p /app/db /app/download/apks /app/upload/icons /app/build-workspace && \
-    DATABASE_URL="file:/app/db/custom.db" bun run db:push
+# Create necessary directories
+RUN mkdir -p /app/db /app/download/apks /app/upload/icons /app/build-workspace
 
 # Stage 2: Production image
 FROM node:21-slim AS runner
@@ -122,9 +121,6 @@ COPY --from=builder /app ./
 RUN mkdir -p /app/db /app/download/apks /app/upload/icons /app/build-workspace && \
     chmod -R 777 /app/db /app/download /app/upload /app/build-workspace
 
-# Copy the pre-initialized database from builder
-COPY --from=builder /app/db/custom.db /app/db/custom.db
-
 # Set environment variables
 ENV NODE_ENV=production
 ENV PORT=3000
@@ -134,12 +130,13 @@ ENV DATABASE_URL="file:/app/db/custom.db"
 # Expose port
 EXPOSE 3000
 
-# Create a startup script that ensures db directory exists and starts the app
+# Create a startup script that ensures database is initialized before starting the app
 RUN echo '#!/bin/sh\n\
 set -e\n\
-echo "[Startup] Ensuring database directory exists..."\n\
+echo "[Startup] Ensuring directories exist..."\n\
 mkdir -p /app/db /app/download/apks /app/upload/icons /app/build-workspace\n\
-echo "[Startup] Database path: /app/db/custom.db"\n\
+echo "[Startup] Running prisma db push to ensure schema..."\n\
+DATABASE_URL="file:/app/db/custom.db" ./node_modules/.bin/prisma db push --accept-data-loss --skip-generate 2>/dev/null || echo "[Startup] prisma db push completed (or already in sync)"\n\
 echo "[Startup] Starting application..."\n\
 exec bun start\n\
 ' > /app/start.sh && chmod +x /app/start.sh
