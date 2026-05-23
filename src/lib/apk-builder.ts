@@ -2,7 +2,6 @@ import { execSync } from 'child_process'
 import { writeFile, mkdir, readFile, copyFile, unlink, rm } from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
-import sharp from 'sharp'
 
 // Detect Android SDK and JDK paths - works both locally and in Docker
 const ANDROID_HOME = process.env.ANDROID_HOME || '/home/z/my-project/android-sdk'
@@ -702,43 +701,46 @@ async function generateIcons(iconPath: string | null, resDir: string, config: Bu
   ]
 
   if (iconPath && existsSync(iconPath)) {
-    // Use the uploaded icon, resize for each density
+    // Use the uploaded icon, resize for each density using Python PIL
     for (const { dir, size } of sizes) {
       const outPath = path.join(resDir, dir, 'ic_launcher.png')
-      await sharp(iconPath)
-        .resize(size, size, { fit: 'cover' })
-        .png()
-        .toFile(outPath)
-      // Round icon
       const roundPath = path.join(resDir, dir, 'ic_launcher_round.png')
-      await sharp(iconPath)
-        .resize(size, size, { fit: 'cover' })
-        .png()
-        .toFile(roundPath)
+      // Resize using Python PIL (more reliable than sharp in serverless)
+      exec(`python3 -c "
+from PIL import Image
+img = Image.open('${iconPath}')
+img = img.resize((${size}, ${size}), Image.LANCZOS)
+img.save('${outPath}', 'PNG')
+img.save('${roundPath}', 'PNG')
+"`)
     }
   } else {
-    // Generate a default icon with the app initials and background color
+    // Generate a default icon with the app initials and background color using Python PIL
     const initial = (config.appName || 'A')[0].toUpperCase()
+    const bg = config.backgroundColor
     for (const { dir, size } of sizes) {
-      const svgIcon = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}">
-        <rect width="${size}" height="${size}" fill="${config.backgroundColor}" rx="${Math.round(size * 0.2)}"/>
-        <text x="50%" y="50%" dominant-baseline="central" text-anchor="middle" 
-              font-family="Arial, sans-serif" font-size="${Math.round(size * 0.5)}" font-weight="bold" fill="white">
-          ${initial}
-        </text>
-      </svg>`
-
       const outPath = path.join(resDir, dir, 'ic_launcher.png')
-      await sharp(Buffer.from(svgIcon))
-        .resize(size, size)
-        .png()
-        .toFile(outPath)
-      
       const roundPath = path.join(resDir, dir, 'ic_launcher_round.png')
-      await sharp(Buffer.from(svgIcon))
-        .resize(size, size)
-        .png()
-        .toFile(roundPath)
+      const fontSize = Math.round(size * 0.5)
+      const radius = Math.round(size * 0.2)
+      exec(`python3 -c "
+from PIL import Image, ImageDraw, ImageFont
+img = Image.new('RGBA', (${size}, ${size}), (0, 0, 0, 0))
+draw = ImageDraw.Draw(img)
+draw.rounded_rectangle([0, 0, ${size}-1, ${size}-1], radius=${radius}, fill='${bg}')
+try:
+    font = ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf', ${fontSize})
+except:
+    font = ImageFont.load_default()
+bbox = draw.textbbox((0, 0), '${initial}', font=font)
+tw = bbox[2] - bbox[0]
+th = bbox[3] - bbox[1]
+x = (${size} - tw) // 2
+y = (${size} - th) // 2 - bbox[1]
+draw.text((x, y), '${initial}', fill='white', font=font)
+img.save('${outPath}', 'PNG')
+img.save('${roundPath}', 'PNG')
+"`)
     }
   }
 }

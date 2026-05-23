@@ -3,7 +3,7 @@
 # Stage 1: Build with JDK + Android SDK
 FROM node:21-slim AS builder
 
-# Install dependencies first (with retry)
+# Install all dependencies including Python3 + PIL, JDK, zip tools
 RUN apt-get update && apt-get install -y --no-install-recommends \
     unzip \
     zip \
@@ -11,9 +11,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     wget \
     software-properties-common \
     gnupg \
+    python3 \
+    python3-pip \
+    python3-pil \
+    fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Eclipse Temurin JDK 21 (works on all Debian/Ubuntu)
+# Install Eclipse Temurin JDK 21
 RUN mkdir -p /etc/apt/keyrings && \
     wget -O - https://packages.adoptium.net/artifactory/api/gpg/key/public | tee /etc/apt/keyrings/adoptium.asc && \
     echo "deb [signed-by=/etc/apt/keyrings/adoptium.asc] https://packages.adoptium.net/artifactory/deb $(cat /etc/os-release | grep VERSION_CODENAME | cut -d= -f2) main" | tee /etc/apt/sources.list.d/adoptium.list && \
@@ -72,12 +76,12 @@ RUN bun run build
 RUN mkdir -p download/apks upload/icons build-workspace db
 
 # Push database schema
-RUN bun run db:push || true
+RUN DATABASE_URL=file:./db/custom.db bun run db:push || true
 
 # Stage 2: Production image
 FROM node:21-slim AS runner
 
-# Install runtime dependencies
+# Install runtime dependencies including Python3 + PIL for icon generation
 RUN apt-get update && apt-get install -y --no-install-recommends \
     unzip \
     zip \
@@ -85,6 +89,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     wget \
     software-properties-common \
     gnupg \
+    python3 \
+    python3-pip \
+    python3-pil \
+    fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Eclipse Temurin JDK 21
@@ -104,7 +112,7 @@ ENV PATH="/root/.bun/bin:${PATH}"
 
 # Copy Android SDK from builder
 ENV ANDROID_HOME=/opt/android-sdk
-ENV PATH="${PATH}:${ANDROID_HOME}/build-tools/34.0.0:${ANDROID_HOME}/platform-tools"
+ENV PATH="${PATH}:${ANDROID_HOME}/build-tools/34.0.0:${ANDROID_HOME}/platform-tools}"
 COPY --from=builder ${ANDROID_HOME} ${ANDROID_HOME}
 
 WORKDIR /app
