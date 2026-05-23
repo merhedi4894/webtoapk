@@ -15,3 +15,4 @@ server.log
 .env.local
 *.apk
 db/custom.db.bak
+keystore/

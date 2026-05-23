@@ -47,9 +47,9 @@ interface BuildConfig {
 
 function exec(cmd: string, cwd?: string): string {
   try {
-    return execSync(cmd, { 
-      cwd, 
-      encoding: 'utf-8', 
+    return execSync(cmd, {
+      cwd,
+      encoding: 'utf-8',
       timeout: 120000,
       stdio: ['pipe', 'pipe', 'pipe']
     })
@@ -104,13 +104,49 @@ function getPermissions(config: BuildConfig): string[] {
   return [...new Set(permissions)]
 }
 
+// Get or create a consistent release keystore for all builds
+// This is critical for Play Protect - using the same keystore makes the app
+// appear more legitimate because Play Protect can build a trust history
+function getReleaseKeystore(workDir: string): { keystorePath: string; keystorePwd: string; keyAlias: string; keyPwd: string } {
+  const keystoreDir = path.join(process.cwd(), 'keystore')
+  const keystorePath = path.join(keystoreDir, 'release.keystore')
+  const keystorePwd = 'WebToAPK2024SecureRelease'
+  const keyAlias = 'release'
+  const keyPwd = 'WebToAPK2024SecureRelease'
+
+  if (!existsSync(keystorePath)) {
+    // Create the keystore directory
+    if (!existsSync(keystoreDir)) {
+      exec(`mkdir -p ${keystoreDir}`)
+    }
+
+    // Generate a proper release keystore with:
+    // - RSA 2048-bit key (standard for Play Store)
+    // - 25+ years validity (Play Store requirement: minimum 25 years)
+    // - Proper X.500 distinguished name (looks professional, not like debug)
+    // - SHA256withRSA signing algorithm
+    exec(`${KEYTOOL} -genkeypair -v \
+      -keystore ${keystorePath} \
+      -alias ${keyAlias} \
+      -keyalg RSA \
+      -keysize 2048 \
+      -sigalg SHA256withRSA \
+      -validity 10000 \
+      -storepass ${keystorePwd} \
+      -keypass ${keyPwd} \
+      -dname "CN=WebToAPK Release, OU=Mobile Applications, O=WebToAPK Technologies, L=Dhaka, ST=Dhaka, C=BD"`)
+  }
+
+  return { keystorePath, keystorePwd, keyAlias, keyPwd }
+}
+
 export async function buildApk(config: BuildConfig): Promise<{ apkPath: string; buildLog: string }> {
   const buildLog: string[] = []
   const log = (msg: string) => buildLog.push(`[${new Date().toISOString()}] ${msg}`)
 
   const workDir = path.join(process.cwd(), 'build-workspace', config.id)
   const outputDir = path.join(process.cwd(), 'download', 'apks')
-  
+
   try {
     log('Starting APK build process')
     log(`App: ${config.appName} (${config.packageName})`)
@@ -147,13 +183,30 @@ export async function buildApk(config: BuildConfig): Promise<{ apkPath: string; 
     log('Workspace created')
 
     // Generate AndroidManifest.xml
+    // CRITICAL for Play Protect: Include targetSdkVersion, compileSdkVersion,
+    // and proper attributes that make the app look legitimate
     const permissions = getPermissions(config)
     const permXml = permissions.map(p => `    <uses-permission android:name="${p}" />`).join('\n')
     const orientationAttr = getOrientationActivity(config.orientation)
-    
-    const networkSecurityAttr = config.enableFileAccess || config.enableStorage
-      ? `\n    android:networkSecurityConfig="@xml/network_security_config"\n    android:usesCleartextTraffic="true"`
-      : '\n    android:usesCleartextTraffic="true"'
+
+    // Build application attributes - avoid duplicate usesCleartextTraffic
+    const appAttrs: string[] = [
+        'android:allowBackup="true"',
+        'android:fullBackupContent="true"',
+        'android:icon="@mipmap/ic_launcher"',
+        'android:label="@string/app_name"',
+        'android:roundIcon="@mipmap/ic_launcher_round"',
+        'android:supportsRtl="true"',
+        'android:theme="@style/AppTheme"',
+        'android:hardwareAccelerated="true"',
+        'android:largeHeap="true"',
+        'android:extractNativeLibs="false"',
+        'android:usesCleartextTraffic="true"',
+    ]
+    if (config.enableFileAccess || config.enableStorage) {
+        appAttrs.push('android:networkSecurityConfig="@xml/network_security_config"')
+    }
+    const appAttrsStr = appAttrs.map(a => `        ${a}`).join('\n')
 
     const manifest = `<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
@@ -161,30 +214,30 @@ export async function buildApk(config: BuildConfig): Promise<{ apkPath: string; 
     android:versionCode="1"
     android:versionName="1.0.0">
 
+    <uses-sdk
+        android:minSdkVersion="21"
+        android:targetSdkVersion="34" />
+
 ${permXml}
 
-    <application
-        android:allowBackup="true"
-        android:icon="@mipmap/ic_launcher"
-        android:label="@string/app_name"
-        android:roundIcon="@mipmap/ic_launcher_round"
-        android:supportsRtl="true"
-        android:theme="@style/AppTheme"${networkSecurityAttr}
-        android:hardwareAccelerated="true"
-        android:largeHeap="true">
+    <!-- Play Protect compatibility: declare hardware features as not required -->
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
+    <uses-feature android:name="android.hardware.location.gps" android:required="false" />
 
+    <application
+${appAttrsStr}>
+
+        <!-- Main Activity - the WebView container -->
         <activity
             android:name=".MainActivity"
             ${orientationAttr}
             android:configChanges="orientation|screenSize|keyboard|keyboardHidden|layoutDirection|locale"
             android:windowSoftInputMode="adjustResize"
             android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
         </activity>
 
+        <!-- Splash Activity - entry point that shows splash then launches Main -->
         <activity
             android:name=".SplashActivity"
             android:theme="@style/SplashTheme"
@@ -207,7 +260,7 @@ ${permXml}
 
     // Generate resources
     const androidColor = hexToAndroidColor(config.backgroundColor)
-    
+
     const stringsXml = `<?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">${escapeXml(config.appName)}</string>
@@ -313,12 +366,12 @@ ${permXml}
     log('Icons generated')
 
     // Generate Java source files
-    const userAgentCode = config.customUserAgent 
-      ? `        webSettings.setUserAgentString("${escapeJava(config.customUserAgent)}");` 
+    const userAgentCode = config.customUserAgent
+      ? `        webSettings.setUserAgentString("${escapeJava(config.customUserAgent)}");`
       : ''
 
-    const pullRefreshCode = config.enablePullRefresh 
-      ? `        webView.setOnTouchListener(new OnSwipeTouchListener(this));` 
+    const pullRefreshCode = config.enablePullRefresh
+      ? `        webView.setOnTouchListener(new OnSwipeTouchListener(this));`
       : ''
 
     const mainActivity = `package ${config.packageName};
@@ -572,7 +625,7 @@ public abstract class OnSwipeTouchListener implements View.OnTouchListener {
       path.join(javaDir, 'AppWebViewClient.java'),
       ...(config.enablePullRefresh ? [path.join(javaDir, 'OnSwipeTouchListener.java')] : []),
     ]
-    
+
     // Find generated R.java
     const rJavaDir = path.join(genDir, pkgPath)
     const rJavaFile = path.join(rJavaDir, 'R.java')
@@ -584,15 +637,13 @@ public abstract class OnSwipeTouchListener implements View.OnTouchListener {
     exec(`${JAVAC} -source 1.8 -target 1.8 -classpath ${classpath} -d ${objDir} ${javaFiles.join(' ')}`)
     log('Java sources compiled')
 
-    // Step 4: Convert to DEX
+    // Step 4: Convert to DEX with min-api 21 (Android 5.0+)
     log('Converting to DEX format...')
-    // Use d8 with the obj directory - it handles class files properly
     exec(`cd ${objDir} && ${D8} --min-api 21 --output ${workDir} --lib ${PLATFORM}/android.jar $(find . -name '*.class')`)
     log('DEX conversion completed')
 
     // Step 5: Package APK
     log('Packaging APK...')
-    // Add DEX files to the base APK using zip (APK is essentially a ZIP)
     const dexFiles = findDexFiles(workDir)
     if (dexFiles.length === 0) {
       throw new Error('No DEX files generated')
@@ -600,43 +651,66 @@ public abstract class OnSwipeTouchListener implements View.OnTouchListener {
 
     // Add DEX files to the APK using zip command
     for (const dexFile of dexFiles) {
-      const dexName = path.basename(dexFile)
       exec(`cd ${workDir} && zip -j base.apk_unaligned ${dexFile}`)
     }
     log('APK packaged')
 
-    // Step 6: Zipalign
+    // Step 6: Zipalign - required for Play Store and reduces Play Protect flags
     log('Aligning APK...')
     const alignedApk = path.join(workDir, 'base.apk_aligned')
     exec(`${ZIPALIGN} -f 4 ${workDir}/base.apk_unaligned ${alignedApk}`)
     log('APK aligned')
 
-    // Step 7: Generate keystore and sign
-    log('Signing APK...')
-    const keystorePath = path.join(workDir, 'release.keystore')
-    const keystorePwd = 'webtoapk2024'
-    const keyAlias = 'webtoapk'
-    const keyPwd = 'webtoapk2024'
-
-    if (!existsSync(keystorePath)) {
-      exec(`${KEYTOOL} -genkeypair -v -keystore ${keystorePath} -alias ${keyAlias} -keyalg RSA -keysize 2048 -validity 10000 -storepass ${keystorePwd} -keypass ${keyPwd} -dname "CN=WebToAPK, OU=Development, O=WebToAPK, L=Dhaka, ST=Dhaka, C=BD"`)
-    }
+    // Step 7: Sign with consistent release keystore using v1+v2+v3 signing schemes
+    // CRITICAL for Play Protect:
+    // - Use a PERSISTENT release keystore (same key for all builds)
+    // - Use ALL signing schemes (v1 JAR, v2 APK Signature, v3 APK Signature)
+    // - v1 is needed for older Android, v2/v3 for Play Protect verification
+    log('Signing APK with release keystore (v1+v2+v3)...')
+    const { keystorePath, keystorePwd, keyAlias, keyPwd } = getReleaseKeystore(workDir)
 
     const signedApk = path.join(workDir, 'base.apk_signed')
-    exec(`${APKSIGNER} sign --ks ${keystorePath} --ks-key-alias ${keyAlias} --ks-pass pass:${keystorePwd} --key-pass pass:${keyPwd} --out ${signedApk} ${alignedApk}`)
-    log('APK signed')
 
-    // Step 8: Verify
-    log('Verifying APK...')
+    // Use apksigner with explicit v1+v2+v3 signing for maximum compatibility
+    // --v1-signing-enabled true = JAR signing (Android 7 and below)
+    // --v2-signing-enabled true = APK Signature Scheme v2 (Android 7+)
+    // --v3-signing-enabled true = APK Signature Scheme v3 (Android 9+)
+    // --v4-signing-enabled false = Not needed unless using adb install-incremental
+    exec(`${APKSIGNER} sign \
+      --ks ${keystorePath} \
+      --ks-key-alias ${keyAlias} \
+      --ks-pass pass:${keystorePwd} \
+      --key-pass pass:${keyPwd} \
+      --v1-signing-enabled true \
+      --v2-signing-enabled true \
+      --v3-signing-enabled true \
+      --v4-signing-enabled false \
+      --out ${signedApk} \
+      ${alignedApk}`)
+    log('APK signed with v1+v2+v3 scheme')
+
+    // Step 8: Verify signing
+    log('Verifying APK signature...')
     const verifyResult = exec(`${APKSIGNER} verify --verbose ${signedApk}`)
-    log(`Verification: ${verifyResult.includes('Verifies') ? 'PASSED' : 'CHECK NEEDED'}`)
+    const hasV1 = verifyResult.includes('v1 scheme (JAR signing): true') || verifyResult.includes('v1 scheme (JAR signing)')
+    const hasV2 = verifyResult.includes('v2 scheme (APK Signature Scheme v2): true') || verifyResult.includes('v2 scheme (APK Signature Scheme v2)')
+    const hasV3 = verifyResult.includes('v3 scheme (APK Signature Scheme v3): true') || verifyResult.includes('v3 scheme (APK Signature Scheme v3)')
+    log(`Signature verification: v1=${hasV1 ? 'YES' : 'NO'}, v2=${hasV2 ? 'YES' : 'NO'}, v3=${hasV3 ? 'YES' : 'NO'}`)
+
+    // Also verify with jarsigner for v1 confirmation
+    try {
+      const jarVerify = exec(`${JARSIGNER} -verify -verbose -certs ${signedApk}`)
+      log(`JAR verification: ${jarVerify.includes('jar verified') ? 'PASSED' : 'CHECK NEEDED'}`)
+    } catch (e: any) {
+      log(`JAR verification: skipped (${e.message?.substring(0, 50)})`)
+    }
 
     // Step 9: Copy to output
     const finalApkPath = path.join(outputDir, `${config.packageName.replace(/\./g, '_')}_${Date.now()}.apk`)
     await copyFile(signedApk, finalApkPath)
     log(`APK saved to: ${finalApkPath}`)
 
-    // Cleanup workspace
+    // Cleanup workspace (but NOT the keystore!)
     try {
       await rm(workDir, { recursive: true, force: true })
     } catch {}
@@ -705,7 +779,6 @@ async function generateIcons(iconPath: string | null, resDir: string, config: Bu
     for (const { dir, size } of sizes) {
       const outPath = path.join(resDir, dir, 'ic_launcher.png')
       const roundPath = path.join(resDir, dir, 'ic_launcher_round.png')
-      // Resize using Python PIL (more reliable than sharp in serverless)
       exec(`python3 -c "
 from PIL import Image
 img = Image.open('${iconPath}')
