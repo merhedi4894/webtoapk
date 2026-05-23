@@ -4,16 +4,26 @@ import { existsSync } from 'fs'
 import path from 'path'
 import sharp from 'sharp'
 
-const ANDROID_HOME = '/home/z/my-project/android-sdk'
+// Detect Android SDK and JDK paths - works both locally and in Docker
+const ANDROID_HOME = process.env.ANDROID_HOME || '/home/z/my-project/android-sdk'
 const BUILD_TOOLS = `${ANDROID_HOME}/build-tools/34.0.0`
 const PLATFORM = `${ANDROID_HOME}/platforms/android-34`
 const AAPT2 = `${BUILD_TOOLS}/aapt2`
 const D8 = `${BUILD_TOOLS}/d8`
 const APKSIGNER = `${BUILD_TOOLS}/apksigner`
 const ZIPALIGN = `${BUILD_TOOLS}/zipalign`
-const JAVAC = '/home/z/my-project/jdk/jdk-21.0.2/bin/javac'
-const KEYTOOL = '/home/z/my-project/jdk/jdk-21.0.2/bin/keytool'
-const JARSIGNER = '/home/z/my-project/jdk/jdk-21.0.2/bin/jarsigner'
+
+// Detect JDK - check Docker path first, then local path, then system PATH
+const JDK_DOCKER = '/usr/lib/jvm/temurin-21-jdk-amd64/bin'
+const JDK_LOCAL = '/home/z/my-project/jdk/jdk-21.0.2/bin'
+const getJdkBin = (tool: string): string => {
+  if (existsSync(`${JDK_DOCKER}/${tool}`)) return `${JDK_DOCKER}/${tool}`
+  if (existsSync(`${JDK_LOCAL}/${tool}`)) return `${JDK_LOCAL}/${tool}`
+  return tool // fallback to system PATH
+}
+const JAVAC = getJdkBin('javac')
+const KEYTOOL = getJdkBin('keytool')
+const JARSIGNER = getJdkBin('jarsigner')
 
 interface BuildConfig {
   id: string
