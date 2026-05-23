@@ -3,7 +3,7 @@
 import { useState, useRef, useCallback } from 'react'
 import { toast } from 'sonner'
 import {
-  Smartphone, Globe, Palette, Image, Timer, Settings,
+  Smartphone, Globe, Palette, ImageIcon, Timer, Settings,
   Shield, Upload, Download, Loader2, CheckCircle2,
   AlertCircle, RefreshCw, ChevronRight, Package,
   MonitorSmartphone, Navigation, Camera, MapPin,
@@ -610,7 +610,7 @@ export default function Home() {
                           </div>
                         ) : (
                           <div className="w-14 h-14 rounded-2xl bg-white/20 flex items-center justify-center">
-                            <Image className="w-7 h-7 text-white/70" alt="" />
+                            <ImageIcon className="w-7 h-7 text-white/70" />
                           </div>
                         )}
                         <p className="text-white font-semibold text-sm text-center px-4 truncate max-w-[180px]">
