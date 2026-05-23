@@ -1,5 +1,6 @@
 node_modules/
 .next/
+.netlify/
 build-workspace/
 download/apks/
 upload/
@@ -12,3 +13,4 @@ server.log
 .zscripts/
 .env
 .env.local
+*.apk
