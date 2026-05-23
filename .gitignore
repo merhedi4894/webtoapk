@@ -1,0 +1,14 @@
+node_modules/
+.next/
+build-workspace/
+download/apks/
+upload/
+*.db
+*.db-journal
+android-sdk/
+jdk/
+dev.log
+server.log
+.zscripts/
+.env
+.env.local
