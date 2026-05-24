@@ -4,7 +4,10 @@ import { existsSync } from 'fs'
 import path from 'path'
 
 // Detect Android SDK and JDK paths - works both locally and in Docker
-const ANDROID_HOME = process.env.ANDROID_HOME || '/home/z/my-project/android-sdk'
+const ANDROID_HOME = process.env.ANDROID_HOME ||
+  (existsSync('/tmp/my-project/android-sdk/build-tools/34.0.0/aapt2') ? '/tmp/my-project/android-sdk' :
+   existsSync('/home/z/my-project/android-sdk/build-tools/34.0.0/aapt2') ? '/home/z/my-project/android-sdk' :
+   '/opt/android-sdk')
 const BUILD_TOOLS = `${ANDROID_HOME}/build-tools/34.0.0`
 const PLATFORM = `${ANDROID_HOME}/platforms/android-34`
 const AAPT2 = `${BUILD_TOOLS}/aapt2`
@@ -190,7 +193,9 @@ export async function buildApk(config: BuildConfig): Promise<{ apkPath: string; 
     const orientationAttr = getOrientationActivity(config.orientation)
 
     // Build application attributes - avoid duplicate usesCleartextTraffic
+    // CRITICAL: android:debuggable="false" tells Android this is a RELEASE build
     const appAttrs: string[] = [
+        'android:debuggable="false"',
         'android:allowBackup="true"',
         'android:fullBackupContent="true"',
         'android:icon="@mipmap/ic_launcher"',
@@ -202,6 +207,7 @@ export async function buildApk(config: BuildConfig): Promise<{ apkPath: string; 
         'android:largeHeap="true"',
         'android:extractNativeLibs="false"',
         'android:usesCleartextTraffic="true"',
+        'android:appCategory="productivity"',
     ]
     if (config.enableFileAccess || config.enableStorage) {
         appAttrs.push('android:networkSecurityConfig="@xml/network_security_config"')

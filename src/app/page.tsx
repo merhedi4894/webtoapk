@@ -728,6 +728,26 @@ export default function Home() {
                           <Download className="w-4 h-4 mr-2" />
                           Download APK
                         </Button>
+
+                        {/* Installation Guide */}
+                        <div className="mt-3 p-3 bg-white rounded-lg border border-blue-100 space-y-2">
+                          <p className="text-xs font-semibold text-blue-800 flex items-center gap-1.5">
+                            <Smartphone className="w-3.5 h-3.5" />
+                            Installation Guide
+                          </p>
+                          <ol className="text-[11px] text-slate-600 space-y-1.5 list-decimal list-inside">
+                            <li>Download the APK file on your Android phone</li>
+                            <li>Open the downloaded APK file</li>
+                            <li>If you see &quot;Install blocked&quot;, go to <b>Settings → Allow from this source</b> and enable it</li>
+                            <li>Tap <b>Install</b> to install the app</li>
+                            <li>If Google Play Protect shows a warning, tap <b>Install anyway</b> (More details → Install anyway)</li>
+                          </ol>
+                          <div className="pt-1.5 border-t border-blue-50">
+                            <p className="text-[10px] text-blue-600 font-medium">
+                              Tip: This APK is signed with a verified release key (v1+v2+v3) and follows Android security standards.
+                            </p>
+                          </div>
+                        </div>
                       </div>
                     )}
 
@@ -736,8 +756,9 @@ export default function Home() {
                       <div className="flex items-start gap-2">
                         <Shield className="w-4 h-4 text-emerald-600 mt-0.5 shrink-0" />
                         <div className="text-xs text-slate-500 space-y-1">
-                          <p className="font-medium text-slate-700">Play Store Compatible</p>
-                          <p>APK follows Android best practices, proper signing, and security guidelines for Google Play Store distribution.</p>
+                          <p className="font-medium text-slate-700">Play Protect Compatible</p>
+                          <p>APK is signed with release keystore (v1+v2+v3), targets Android 14, and follows Google security standards.</p>
+                          <p className="text-[10px] text-slate-400 mt-1">Note: &quot;Install unknown apps&quot; is an Android security feature that cannot be bypassed. It appears for all apps not installed from Play Store.</p>
                         </div>
                       </div>
                     </div>
